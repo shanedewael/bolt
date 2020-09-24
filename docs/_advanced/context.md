@@ -8,13 +8,12 @@ order: 6
 <div class="section-content">
 All listeners have access to a `context` object, which can be used to enrich events with additional information. For example, perhaps you want to add user information from a third party system or add temporary state for the next middleware in the chain.
 
-`context` is just an object, so you can add to it by setting it to a modified version of itself.
+`context` is just an object, so you can directly modifying it.
 </div>
 
 ```javascript
-async function addTimezoneContext({ payload, context, next }) {
-  const user = await app.client.users.info({
-    token: context.botToken,
+async function addTimezoneContext({ client, context, next, payload }) {
+  const user = await client.users.info({
     user: payload.user_id,
     include_locale: true
   });
@@ -26,7 +25,7 @@ async function addTimezoneContext({ payload, context, next }) {
   await next();
 }
 
-app.command('request', addTimezoneContext, async ({ command, ack, context }) => {
+app.command('request', addTimezoneContext, async ({ ack, client, command, context }) => {
   // Acknowledge command request
   await ack();
   // Get local hour of request
@@ -44,8 +43,7 @@ app.command('request', addTimezoneContext, async ({ command, ack, context }) => 
 
     try {
       // Schedule message
-      const result = await app.client.chat.scheduleMessage({
-        token: context.botToken,
+      const result = await client.chat.scheduleMessage({
         channel: requestChannel,
         text: requestText,
         post_at: local_tomorrow
@@ -57,8 +55,7 @@ app.command('request', addTimezoneContext, async ({ command, ack, context }) => 
   } else {
     try {
       // Post now
-      const result = app.client.chat.postMessage({
-        token: context.botToken,
+      const result = client.chat.postMessage({
         channel: requestChannel,
         text: requestText
       });
