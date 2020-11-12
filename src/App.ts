@@ -83,6 +83,8 @@ export interface AppOptions {
   clientOptions?: Pick<WebClientOptions, 'slackApiUrl'>;
 }
 
+export { WebClient, WebClientOptions } from '@slack/web-api';
+
 export { LogLevel, Logger } from '@slack/logger';
 
 /** Authorization function - seeds the middleware processing and listeners with an authorization context */
