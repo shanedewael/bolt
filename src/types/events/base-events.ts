@@ -67,7 +67,8 @@ export type SlackEvent =
   | TeamRenameEvent
   | TokensRevokedEvent
   | UserChangeEvent
-  | WorkflowStepExecuteEvent;
+  | WorkflowStepExecuteEvent
+  | FunctionExecutedEvent;
 
 /**
  * Any event in Slack's Events API
@@ -769,6 +770,32 @@ export interface WorkflowStepExecuteEvent extends StringIndexed {
   };
   event_ts: string;
 }
+
+  export interface FunctionExecutedEvent extends StringIndexed {
+  type: 'function_executed';
+  function_execution_id: string;
+  function: {
+    id: string;
+    callback_id: string;
+    name: string;
+    description: string;
+    input_parameters: {
+      name: string;
+      description: string;
+      type: string;
+    }[];
+    output_parameters: {
+      name: string;
+      description: string;
+      type: string;
+    }[];
+  };
+  arguments: {
+    [index: string]: any;
+  };
+  event_ts: string;
+}
+
 
 // NOTE: `user_resourced_denied`, `user_resource_granted`, `user_resourced_removed` are left out because they are
 // deprecated as part of the Workspace Apps Developer Preview

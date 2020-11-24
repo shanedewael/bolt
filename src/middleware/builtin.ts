@@ -255,6 +255,21 @@ export function matchCommandName(name: string): Middleware<SlackCommandMiddlewar
 }
 
 /**
+ * Middleware that filters out any Function that doesn't match callback_id
+ */
+export function matchFunctionCallback(callback_id: string): Middleware<SlackEventMiddlewareArgs> {
+  return async ({ event, next }) => {
+    // Filter out any functions that are not the correct function name
+    if ('function_executed' !== event.type || !event.function || callback_id !== event.function.callback_id) {
+      return;
+    }
+
+    // TODO: remove the non-null assertion operator
+    await next!();
+  };
+}
+
+/**
  * Middleware that filters out any event that isn't of given type
  */
 export function matchEventType(type: string): Middleware<SlackEventMiddlewareArgs> {

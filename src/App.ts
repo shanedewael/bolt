@@ -12,6 +12,7 @@ import {
   matchConstraints,
   onlyCommands,
   matchCommandName,
+  matchFunctionCallback,
   onlyOptions,
   onlyShortcuts,
   onlyEvents,
@@ -476,6 +477,13 @@ export default class App {
   // TODO: should command names also be regex?
   public command(commandName: string, ...listeners: Middleware<SlackCommandMiddlewareArgs>[]): void {
     this.listeners.push([onlyCommands, matchCommandName(commandName), ...listeners] as Middleware<AnyMiddlewareArgs>[]);
+  }
+
+  // matches a Slack function callback specifically
+  public function(callbackID: string, ...listeners: Middleware<SlackEventMiddlewareArgs>[]): void {
+    this.listeners.push([matchFunctionCallback(callbackID), ...listeners] as Middleware<
+      AnyMiddlewareArgs
+    >[]);
   }
 
   public options<Source extends OptionsSource = OptionsSource>(
