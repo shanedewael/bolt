@@ -260,7 +260,7 @@ export function matchCommandName(name: string): Middleware<SlackCommandMiddlewar
 export function matchFunctionCallback(callback_id: string): Middleware<SlackEventMiddlewareArgs> {
   return async ({ event, next }) => {
     // Filter out any functions that are not the correct function name
-    if ('function_executed' !== event.type || !event.function || callback_id !== event.function.callback_id) {
+    if (!event || 'function_executed' !== event.type || !event.function || callback_id !== event.function.callback_id) {
       return;
     }
 
