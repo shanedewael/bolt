@@ -13,6 +13,7 @@ import {
   onlyCommands,
   matchCommandName,
   matchFunctionCallback,
+  matchHttp,
   onlyOptions,
   onlyShortcuts,
   onlyEvents,
@@ -486,6 +487,13 @@ export default class App {
     >[]);
   }
 
+  // matches a Slack function callback specifically
+  public http(method: string, path: string, ...listeners: Middleware<SlackEventMiddlewareArgs>[]): void {
+    this.listeners.push([matchHttp(method, path), ...listeners] as Middleware<
+      AnyMiddlewareArgs
+    >[]);
+  }
+  
   public options<Source extends OptionsSource = OptionsSource>(
     actionId: string | RegExp,
     ...listeners: Middleware<SlackOptionsMiddlewareArgs<Source>>[]

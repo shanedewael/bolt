@@ -9,6 +9,7 @@ import {
   SlackOptionsMiddlewareArgs,
   SlackShortcutMiddlewareArgs,
   SlackViewMiddlewareArgs,
+  SlackHttpMiddlewareArgs,
   SlackEvent,
   SlackAction,
   SlackShortcut,
@@ -265,6 +266,39 @@ export function matchFunctionCallback(callback_id: string): Middleware<SlackEven
     }
 
     // TODO: remove the non-null assertion operator
+    await next!();
+  };
+}
+
+/**
+ * Middleware that filters out any Hermes Http Request that doesn't match path
+ */
+export function matchHttp(method: string, pattern: string | RegExp): Middleware<SlackHttpMiddlewareArgs> {
+  return async ({ payload, context, next }) => {
+    let tempMatches: RegExpMatchArray | null;
+
+    if (!payload || payload.path === undefined) {
+      return;
+    }
+
+    if (method !== payload.method) {
+      return;
+    }
+
+    if (typeof pattern === 'string') {
+      if (payload.path !== pattern) {
+        return;
+      }
+    } else {
+      tempMatches = payload.path.match(pattern);
+
+      if (tempMatches !== null) {
+        context['matches'] = tempMatches;
+      } else {
+        return;
+      }
+    }
+
     await next!();
   };
 }
