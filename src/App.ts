@@ -488,8 +488,8 @@ export default class App {
     >[]);
   }
 
-  // matches a Slack function callback specifically
-  public http(method: string, path: string, ...listeners: Middleware<SlackHttpMiddlewareArgs>[]): void {
+  // matches a Slack hermes http request specifically
+  public req(method: string, path: string, ...listeners: Middleware<SlackHttpMiddlewareArgs>[]): void {
     this.listeners.push([matchHttp(method, path), ...listeners] as Middleware<
       AnyMiddlewareArgs
     >[]);
