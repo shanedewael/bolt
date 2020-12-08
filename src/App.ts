@@ -694,7 +694,7 @@ export default class App {
         return this.axios.post(body.response_url, validResponse);
       };
     }
-
+    
     // Set ack() utility
     if (type !== IncomingEventType.Event) {
       listenerArgs.ack = ack;

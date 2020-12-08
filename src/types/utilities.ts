@@ -30,7 +30,7 @@ export interface AckFn<Response> {
   (response?: Response): Promise<void>;
 }
 
-export interface RespondHttpFn {
+export interface AckHttpFn {
   headers: object;
   body: string;
   code: number;

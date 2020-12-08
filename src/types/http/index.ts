@@ -1,4 +1,4 @@
-import { RespondHttpFn } from '../utilities';
+import { AckHttpFn } from '../utilities';
 
 /**
  * Arguments which listeners and middleware receive to process a hermes http event Slack.
@@ -7,7 +7,7 @@ import { RespondHttpFn } from '../utilities';
  */
 export interface SlackHttpMiddlewareArgs {
   payload: Http;
-  respond: RespondHttpFn;
+  ack: AckHttpFn;
 }
 
 /**
