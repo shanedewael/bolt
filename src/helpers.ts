@@ -19,6 +19,7 @@ export enum IncomingEventType {
   Options,
   ViewAction,
   Shortcut,
+  Http,
 }
 
 /**
@@ -76,6 +77,11 @@ export function getTypeAndConversation(body: any): { type?: IncomingEventType; c
     return {
       type: IncomingEventType.ViewAction,
     };
+  }
+  if (body.type === 'http') {
+    return {
+      type: IncomingEventType.Http,
+    }
   }
   return {};
 }

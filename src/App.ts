@@ -645,6 +645,8 @@ export default class App {
           ? (bodyArg as SlackViewMiddlewareArgs['body']).view
           : type === IncomingEventType.Shortcut
           ? (bodyArg as SlackShortcutMiddlewareArgs['body'])
+          : type === IncomingEventType.Http
+          ? (bodyArg as SlackHttpMiddlewareArgs['body'])
           : type === IncomingEventType.Action &&
             isBlockActionOrInteractiveMessageBody(bodyArg as SlackActionMiddlewareArgs['body'])
           ? (bodyArg as SlackActionMiddlewareArgs<BlockAction | InteractiveMessage>['body']).actions[0]
