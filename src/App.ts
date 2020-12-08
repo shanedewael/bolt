@@ -905,7 +905,9 @@ function buildSource(
   } else {
     source = {
       teamId:
-        type === IncomingEventType.Event &&
+        type === IncomingEventType.Http
+        ? '' // not sure what to do here becuase an HTTP request doesn't necessarily contain a team_id
+        : type === IncomingEventType.Event &&
         (body as SlackEventMiddlewareArgs['body']).authorizations !== undefined &&
         (body as SlackEventMiddlewareArgs['body']).authorizations!.length > 0 &&
         (body as SlackEventMiddlewareArgs['body']).authorizations![0].team_id !== null
