@@ -32,6 +32,7 @@ import {
   SlackEventMiddlewareArgs,
   SlackOptionsMiddlewareArgs,
   SlackShortcutMiddlewareArgs,
+  SlackHttpMiddlewareArgs,
   SlackViewMiddlewareArgs,
   SlackAction,
   SlackShortcut,
@@ -488,7 +489,7 @@ export default class App {
   }
 
   // matches a Slack function callback specifically
-  public http(method: string, path: string, ...listeners: Middleware<SlackEventMiddlewareArgs>[]): void {
+  public http(method: string, path: string, ...listeners: Middleware<SlackHttpMiddlewareArgs>[]): void {
     this.listeners.push([matchHttp(method, path), ...listeners] as Middleware<
       AnyMiddlewareArgs
     >[]);

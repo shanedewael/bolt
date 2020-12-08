@@ -7,6 +7,7 @@ import { AckHttpFn } from '../utilities';
  */
 export interface SlackHttpMiddlewareArgs {
   payload: Http;
+  body: this['payload'];
   ack: AckHttpFn;
 }
 
