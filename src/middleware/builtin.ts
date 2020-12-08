@@ -281,7 +281,7 @@ export function matchHttp(method: string, pattern: string | RegExp): Middleware<
       return;
     }
 
-    if (method !== payload.method) {
+    if (method.toLowerCase() !== payload.method.toLowerCase()) {
       return;
     }
 
