@@ -22,4 +22,13 @@ export interface Http {
   path: string;
   headers: object;
   body: string;
+
+  // these will never be present but we need to satisfy the interface
+  // TODO(@mbrevoort): fix :)
+  is_enterprise_install?: string;
+  team?: string;
+  user?: string;
+  enterprise?: {
+    id?: string;
+  };
 }

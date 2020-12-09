@@ -827,7 +827,9 @@ function buildSource(
   if (orgInstall) {
     source = {
       teamId:
-        type === IncomingEventType.Event &&
+        type === IncomingEventType.Http
+        ? '' // not sure what to do here becuase an HTTP request doesn't necessarily contain a team_id
+        : type === IncomingEventType.Event &&
         (body as SlackEventMiddlewareArgs['body']).authorizations !== undefined &&
         (body as SlackEventMiddlewareArgs['body']).authorizations!.length > 0 &&
         (body as SlackEventMiddlewareArgs['body']).authorizations![0].team_id !== null
@@ -869,12 +871,14 @@ function buildSource(
           : type === IncomingEventType.Action ||
             type === IncomingEventType.Options ||
             type === IncomingEventType.ViewAction ||
-            type === IncomingEventType.Shortcut
+            type === IncomingEventType.Shortcut ||
+            type === IncomingEventType.Http
           ? ((body as (
               | SlackActionMiddlewareArgs
               | SlackOptionsMiddlewareArgs
               | SlackViewMiddlewareArgs
               | SlackShortcutMiddlewareArgs
+              | SlackHttpMiddlewareArgs
             )['body']).enterprise!.id as string)
           : assertNever(type),
       userId:
