@@ -52,7 +52,7 @@ export interface ButtonAction extends BasicElementAction<'button'> {
  */
 export interface StaticSelectAction extends BasicElementAction<'static_select'> {
   selected_option: {
-    text: PlainTextElement,
+    text: PlainTextElement;
     value: string;
   };
   initial_option?: Option;
@@ -66,9 +66,9 @@ export interface StaticSelectAction extends BasicElementAction<'static_select'> 
 export interface MultiStaticSelectAction extends BasicElementAction<'multi_static_select'> {
   selected_options: [
     {
-      text: PlainTextElement,
+      text: PlainTextElement;
       value: string;
-    }
+    },
   ];
   initial_options?: [Option];
   placeholder?: PlainTextElement;
@@ -162,7 +162,7 @@ export interface MultiExternalSelectAction extends BasicElementAction<'multi_ext
  */
 export interface OverflowAction extends BasicElementAction<'overflow'> {
   selected_option: {
-    text: PlainTextElement,
+    text: PlainTextElement;
     value: string;
   };
   confirm?: Confirmation;
@@ -172,7 +172,7 @@ export interface OverflowAction extends BasicElementAction<'overflow'> {
  * An action from a date picker element
  */
 export interface DatepickerAction extends BasicElementAction<'datepicker'> {
-  selected_date: string;
+  selected_date: string | null;
   initial_date?: string;
   placeholder?: PlainTextElement;
   confirm?: Confirmation;
@@ -182,7 +182,7 @@ export interface DatepickerAction extends BasicElementAction<'datepicker'> {
  * An action from a radio button element
  */
 export interface RadioButtonsAction extends BasicElementAction<'radio_buttons'> {
-  selected_option: Option;
+  selected_option: Option | null;
   initial_option?: Option;
   confirm?: Confirmation;
 }
@@ -209,7 +209,7 @@ export interface BlockAction<ElementAction extends BasicElementAction = BlockEle
     domain: string;
     enterprise_id?: string; // undocumented
     enterprise_name?: string; // undocumented
-  };
+  } | null;
   user: {
     id: string;
     name: string;
@@ -237,6 +237,13 @@ export interface BlockAction<ElementAction extends BasicElementAction = BlockEle
 
   // this appears in the block_suggestions schema, but we're not sure when its present or what its type would be
   app_unfurl?: any;
+
+  // exists for enterprise installs
+  is_enterprise_install?: boolean;
+  enterprise?: {
+    id: string;
+    name: string;
+  };
 }
 
 /*

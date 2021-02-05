@@ -1,11 +1,15 @@
+import { View } from '@slack/types';
 import { StringIndexed } from '../helpers';
 import { AckFn } from '../utilities';
-import { View } from '@slack/types';
 
 /**
  * Known view action types
  */
-export type SlackViewAction = ViewSubmitAction | ViewClosedAction;
+export type SlackViewAction =
+  | ViewSubmitAction
+  | ViewClosedAction
+  | ViewWorkflowStepSubmitAction
+  | ViewWorkflowStepClosedAction;
 // <ViewAction extends SlackViewAction = ViewSubmitAction>
 /**
  * Arguments which listeners and middleware receive to process a view submission event from Slack.
@@ -35,7 +39,7 @@ export interface ViewSubmitAction {
     domain: string;
     enterprise_id?: string; // undocumented
     enterprise_name?: string; // undocumented
-  };
+  } | null;
   user: {
     id: string;
     name: string;
@@ -44,6 +48,12 @@ export interface ViewSubmitAction {
   view: ViewOutput;
   api_app_id: string;
   token: string;
+  // exists for enterprise installs
+  is_enterprise_install?: boolean;
+  enterprise?: {
+    id: string;
+    name: string;
+  };
 }
 
 /**
@@ -58,7 +68,7 @@ export interface ViewClosedAction {
     domain: string;
     enterprise_id?: string; // undocumented
     enterprise_name?: string; // undocumented
-  };
+  } | null;
   user: {
     id: string;
     name: string;
@@ -68,6 +78,41 @@ export interface ViewClosedAction {
   api_app_id: string;
   token: string;
   is_cleared: boolean;
+  // exists for enterprise installs
+  is_enterprise_install?: boolean;
+  enterprise?: {
+    id: string;
+    name: string;
+  };
+}
+
+/**
+ * A Slack view_submission Workflow Step event
+ *
+ * This describes the additional JSON-encoded body details for a step's view_submission event
+ */
+
+export interface ViewWorkflowStepSubmitAction extends ViewSubmitAction {
+  trigger_id: string;
+  response_urls: [];
+  workflow_step: {
+    workflow_step_edit_id: string;
+    workflow_id: string;
+    step_id: string;
+  };
+}
+
+/**
+ * A Slack view_closed Workflow Step event
+ *
+ * This describes the additional JSON-encoded body details for a step's view_closed event
+ */
+export interface ViewWorkflowStepClosedAction extends ViewClosedAction {
+  workflow_step: {
+    workflow_step_edit_id: string;
+    workflow_id: string;
+    step_id: string;
+  };
 }
 
 export interface ViewOutput {
@@ -119,14 +164,16 @@ export interface ViewErrorsResponseAction {
 }
 
 export type ViewResponseAction =
-  ViewUpdateResponseAction | ViewPushResponseAction | ViewClearResponseAction | ViewErrorsResponseAction;
+  | ViewUpdateResponseAction
+  | ViewPushResponseAction
+  | ViewClearResponseAction
+  | ViewErrorsResponseAction;
 
 /**
  * Type function which given a view action `VA` returns a corresponding type for the `ack()` function. The function is
  * used to acknowledge the receipt (and possibly signal failure) of an view submission or closure from a listener or
  * middleware.
  */
-type ViewAckFn<VA extends SlackViewAction = SlackViewAction> =
-  VA extends ViewSubmitAction ? AckFn<ViewResponseAction> :
-  // ViewClosedActions can only be acknowledged, there are no arguments
-  AckFn<void>;
+type ViewAckFn<VA extends SlackViewAction = SlackViewAction> = VA extends ViewSubmitAction
+  ? AckFn<ViewResponseAction> // ViewClosedActions can only be acknowledged, there are no arguments
+  : AckFn<void>;

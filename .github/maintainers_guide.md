@@ -28,6 +28,18 @@ All documentation contains [front matter](https://jekyllrb.com/docs/front-matter
 
 To build the docs locally, you can run `bundle exec jekyll serve`.
 
+#### Adding beta documentation
+When documentation is in a beta state, it requires a new, distinct collection of docs. The process is a little nuanced, so make sure to build the documentation locally to make sure it appears how you expect. To create a new collection:
+1. Add content
+* Add a new folder to docs with an underscore (ex: `_steps`).
+* Add documentation sections to that folder, with similar front matter to the `_advanced` and `_basic` sections.
+* Add an overview section that explains the beta state of the category. This should always be `order: 1` in the front matter.
+
+2. Configure layout
+* Update `docs`>`_config.yml` with the new collection you created under `collections` (the same as the folder name - ex: `steps`). While you're there, add the sidebar title under `t`.
+* In `docs`>`_layouts`>`default.html` make a copy of the `basic` or `advanced` section, and modify the div ID and content to correspond to your beta collection. This step requires you to use variables from `_config.yml`.
+* Now in `docs`>`_includes`>`sidebar.html`, create a new section after the basic and advanced sections. Again, copy the `basic` or `advanced` section to use as a template. Be careful with the variable naming—it's a little more complex than in `default.html`, and requires you to use variables from `_config.yml`.
+
 ### Releasing
 
 1.  Create the commit for the release:
@@ -39,7 +51,7 @@ To build the docs locally, you can run `bundle exec jekyll serve`.
 
 2.  Merge into main repository
     *  Create a pull request with the commit that was just made. Be certain to include the tag. For
-       example: `git push username main:rel-v1.0.8 && git push --tags username`.
+       example: `git push username main --tags`.
     *  Once tests pass and a reviewer has approved, merge the pull request. You will also want to
        update your local `main` branch.
     *  Push the new tag up to origin `git push --tags origin`.
@@ -78,12 +90,17 @@ This project is versioned using [Semantic Versioning](http://semver.org/), parti
 [npm flavor](https://docs.npmjs.com/getting-started/semantic-versioning). Each release is tagged
 using git.
 
+### Fork
+
+As a maintainer, the development you do will be almost entirely off of your forked version of this repository. The exception to this rule pertains to multiple collaborators working on the same feature, which is detailed in the **Branches** section below.
+
 ### Branches
 
-`master` is where active development occurs. Long running named feature branches are occasionally
-created for collaboration on a feature that has a large scope (because everyone cannot push commits
-to another person's open Pull Request). At some point in the future after a major version increment,
-there may be maintenance branches for older major versions.
+`main` is where active development occurs. 
+
+When developing, branches should be created off of your fork and not directly off of this repository. If working on a long-running feature and in collaboration with others, a corresponding branch of the same name is permitted. This makes collaboration on a single branch possible, as contributors working on the same feature cannot push commits to others' open Pull Requests.
+
+After a major version increment, there also may be maintenance branches created specifically for supporting older major versions.
 
 ### Issue Management
 

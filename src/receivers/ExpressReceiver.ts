@@ -1,61 +1,75 @@
-import { AnyMiddlewareArgs, Receiver, ReceiverEvent } from './types';
-import { createServer, Server } from 'http';
+/* eslint-disable @typescript-eslint/explicit-member-accessibility, @typescript-eslint/strict-boolean-expressions */
+
+import { createServer, Server, ServerOptions } from 'http';
+import { createServer as createHttpsServer, Server as HTTPSServer, ServerOptions as HTTPSServerOptions } from 'https';
+import { ListenOptions } from 'net';
 import express, { Request, Response, Application, RequestHandler, Router } from 'express';
 import rawBody from 'raw-body';
 import querystring from 'querystring';
 import crypto from 'crypto';
 import tsscmp from 'tsscmp';
-import App from './App';
-import { ReceiverAuthenticityError, ReceiverMultipleAckError } from './errors';
-import { Logger, ConsoleLogger } from '@slack/logger';
-import { InstallProvider, StateStore, InstallationStore, CallbackOptions } from '@slack/oauth';
+import { Logger, ConsoleLogger, LogLevel } from '@slack/logger';
+import { InstallProvider, CallbackOptions, InstallProviderOptions, InstallURLOptions } from '@slack/oauth';
+import App from '../App';
+import { ReceiverAuthenticityError, ReceiverMultipleAckError, ReceiverInconsistentStateError } from '../errors';
+import { AnyMiddlewareArgs, Receiver, ReceiverEvent } from '../types';
 
 // TODO: we throw away the key names for endpoints, so maybe we should use this interface. is it better for migrations?
 // if that's the reason, let's document that with a comment.
 export interface ExpressReceiverOptions {
   signingSecret: string;
   logger?: Logger;
-  endpoints?: string | {
-    [endpointType: string]: string;
-  };
+  logLevel?: LogLevel;
+  endpoints?:
+    | string
+    | {
+        [endpointType: string]: string;
+      };
   processBeforeResponse?: boolean;
   clientId?: string;
   clientSecret?: string;
-  stateSecret?: string; // ClearStateStoreOptions['secret']; // required when using default stateStore
-  installationStore?: InstallationStore; // default MemoryInstallationStore
-  scopes?: string | string[];
+  stateSecret?: InstallProviderOptions['stateSecret']; // required when using default stateStore
+  installationStore?: InstallProviderOptions['installationStore']; // default MemoryInstallationStore
+  scopes?: InstallURLOptions['scopes'];
   installerOptions?: InstallerOptions;
 }
 
 // Additional Installer Options
 interface InstallerOptions {
-  stateStore?: StateStore; // default ClearStateStore
-  authVersion?: 'v1' | 'v2'; // default 'v2'
-  metadata?: string;
+  stateStore?: InstallProviderOptions['stateStore']; // default ClearStateStore
+  authVersion?: InstallProviderOptions['authVersion']; // default 'v2'
+  metadata?: InstallURLOptions['metadata'];
   installPath?: string;
   redirectUriPath?: string;
   callbackOptions?: CallbackOptions;
-  userScopes?: string | string[];
+  userScopes?: InstallURLOptions['userScopes'];
+  clientOptions?: InstallProviderOptions['clientOptions'];
+  authorizationUrl?: InstallProviderOptions['authorizationUrl'];
 }
 
 /**
  * Receives HTTP requests with Events, Slash Commands, and Actions
  */
 export default class ExpressReceiver implements Receiver {
-
   /* Express app */
   public app: Application;
 
-  private server: Server;
+  private server?: Server;
+
   private bolt: App | undefined;
+
   private logger: Logger;
+
   private processBeforeResponse: boolean;
+
   public router: Router;
+
   public installer: InstallProvider | undefined = undefined;
 
   constructor({
     signingSecret = '',
-    logger = new ConsoleLogger(),
+    logger = undefined,
+    logLevel = LogLevel.INFO,
     endpoints = { events: '/slack/events' },
     processBeforeResponse = false,
     clientId = undefined,
@@ -66,50 +80,64 @@ export default class ExpressReceiver implements Receiver {
     installerOptions = {},
   }: ExpressReceiverOptions) {
     this.app = express();
-    // TODO: what about starting an https server instead of http? what about other options to create the server?
-    this.server = createServer(this.app);
+
+    if (typeof logger !== 'undefined') {
+      this.logger = logger;
+    } else {
+      this.logger = new ConsoleLogger();
+      this.logger.setLevel(logLevel);
+    }
+
+    if (typeof logger !== 'undefined') {
+      this.logger = logger;
+    } else {
+      this.logger = new ConsoleLogger();
+      this.logger.setLevel(logLevel);
+    }
 
     const expressMiddleware: RequestHandler[] = [
-      verifySignatureAndParseRawBody(logger, signingSecret),
+      verifySignatureAndParseRawBody(this.logger, signingSecret),
       respondToSslCheck,
       respondToUrlVerification,
       this.requestHandler.bind(this),
     ];
 
     this.processBeforeResponse = processBeforeResponse;
-    this.logger = logger;
+
     const endpointList = typeof endpoints === 'string' ? [endpoints] : Object.values(endpoints);
     this.router = Router();
-    for (const endpoint of endpointList) {
+    endpointList.forEach((endpoint) => {
       this.router.post(endpoint, ...expressMiddleware);
-    }
+    });
 
     if (
-      clientId !== undefined
-      && clientSecret !== undefined
-      && (stateSecret !== undefined || installerOptions.stateStore !== undefined)
+      clientId !== undefined &&
+      clientSecret !== undefined &&
+      (stateSecret !== undefined || installerOptions.stateStore !== undefined)
     ) {
-
       this.installer = new InstallProvider({
         clientId,
         clientSecret,
         stateSecret,
         installationStore,
+        logLevel,
+        logger, // pass logger that was passed in constructor, not one created locally
         stateStore: installerOptions.stateStore,
         authVersion: installerOptions.authVersion!,
+        clientOptions: installerOptions.clientOptions,
+        authorizationUrl: installerOptions.authorizationUrl,
       });
     }
 
     // Add OAuth routes to receiver
     if (this.installer !== undefined) {
-      const redirectUriPath = installerOptions.redirectUriPath === undefined ?
-        '/slack/oauth_redirect' : installerOptions.redirectUriPath;
+      const redirectUriPath =
+        installerOptions.redirectUriPath === undefined ? '/slack/oauth_redirect' : installerOptions.redirectUriPath;
       this.router.use(redirectUriPath, async (req, res) => {
         await this.installer!.handleCallback(req, res, installerOptions.callbackOptions);
       });
 
-      const installPath = installerOptions.installPath === undefined ?
-      '/slack/install' : installerOptions.installPath;
+      const installPath = installerOptions.installPath === undefined ? '/slack/install' : installerOptions.installPath;
       this.router.get(installPath, async (_req, res, next) => {
         try {
           const url = await this.installer!.generateInstallUrl({
@@ -134,13 +162,14 @@ export default class ExpressReceiver implements Receiver {
     let isAcknowledged = false;
     setTimeout(() => {
       if (!isAcknowledged) {
-        this.logger.error('An incoming event was not acknowledged within 3 seconds. ' +
-            'Ensure that the ack() argument is called in a listener.');
+        this.logger.error(
+          'An incoming event was not acknowledged within 3 seconds. Ensure that the ack() argument is called in a listener.',
+        );
       }
-    // tslint:disable-next-line: align
+      // tslint:disable-next-line: align
     }, 3001);
 
-    let storedResponse = undefined;
+    let storedResponse;
     const event: ReceiverEvent = {
       body: req.body,
       ack: async (response): Promise<void> => {
@@ -189,20 +218,66 @@ export default class ExpressReceiver implements Receiver {
     this.bolt = bolt;
   }
 
-  // TODO: the arguments should be defined as the arguments of Server#listen()
-  // TODO: the return value should be defined as a type that both http and https servers inherit from, or a union
-  public start(port: number): Promise<Server> {
+  // TODO: can this method be defined as generic instead of using overloads?
+  public start(port: number): Promise<Server>;
+  public start(portOrListenOptions: number | ListenOptions, serverOptions?: ServerOptions): Promise<Server>;
+  public start(
+    portOrListenOptions: number | ListenOptions,
+    httpsServerOptions?: HTTPSServerOptions,
+  ): Promise<HTTPSServer>;
+  public start(
+    portOrListenOptions: number | ListenOptions,
+    serverOptions: ServerOptions | HTTPSServerOptions = {},
+  ): Promise<Server | HTTPSServer> {
+    let createServerFn: typeof createServer | typeof createHttpsServer = createServer;
+
+    // Decide which kind of server, HTTP or HTTPS, by search for any keys in the serverOptions that are exclusive to HTTPS
+    if (Object.keys(serverOptions).filter((k) => httpsOptionKeys.includes(k)).length > 0) {
+      createServerFn = createHttpsServer;
+    }
+
+    if (this.server !== undefined) {
+      return Promise.reject(
+        new ReceiverInconsistentStateError('The receiver cannot be started because it was already started.'),
+      );
+    }
+
+    this.server = createServerFn(serverOptions, this.app);
+
     return new Promise((resolve, reject) => {
-      try {
-        // TODO: what about other listener options?
-        // TODO: what about asynchronous errors? should we attach a handler for this.server.on('error', ...)?
-        // if so, how can we check for only errors related to listening, as opposed to later errors?
-        this.server.listen(port, () => {
-          resolve(this.server);
-        });
-      } catch (error) {
-        reject(error);
+      if (this.server === undefined) {
+        throw new ReceiverInconsistentStateError(missingServerErrorDescription);
       }
+
+      this.server.on('error', (error) => {
+        if (this.server === undefined) {
+          throw new ReceiverInconsistentStateError(missingServerErrorDescription);
+        }
+
+        this.server.close();
+
+        // If the error event occurs before listening completes (like EADDRINUSE), this works well. However, if the
+        // error event happens some after the Promise is already resolved, the error would be silently swallowed up.
+        // The documentation doesn't describe any specific errors that can occur after listening has started, so this
+        // feels safe.
+        reject(error);
+      });
+
+      this.server.on('close', () => {
+        // Not removing all listeners because consumers could have added their own `close` event listener, and those
+        // should be called. If the consumer doesn't dispose of any references to the server properly, this would be
+        // a memory leak.
+        // this.server?.removeAllListeners();
+        this.server = undefined;
+      });
+
+      this.server.listen(portOrListenOptions, () => {
+        if (this.server === undefined) {
+          return reject(new ReceiverInconsistentStateError(missingServerErrorDescription));
+        }
+
+        resolve(this.server);
+      });
     });
   }
 
@@ -210,13 +285,15 @@ export default class ExpressReceiver implements Receiver {
   // generic types
   public stop(): Promise<void> {
     return new Promise((resolve, reject) => {
-      // TODO: what about synchronous errors?
+      if (this.server === undefined) {
+        return reject(new ReceiverInconsistentStateError('The receiver cannot be stopped because it was not started.'));
+      }
       this.server.close((error) => {
         if (error !== undefined) {
-          reject(error);
-          return;
+          return reject(error);
         }
 
+        this.server = undefined;
         resolve();
       });
     });
@@ -244,12 +321,8 @@ export const respondToUrlVerification: RequestHandler = (req, res, next) => {
  * - Verify the request signature
  * - Parse request.body and assign the successfully parsed object to it.
  */
-export function verifySignatureAndParseRawBody(
-  logger: Logger,
-  signingSecret: string,
-): RequestHandler {
+export function verifySignatureAndParseRawBody(logger: Logger, signingSecret: string): RequestHandler {
   return async (req, res, next) => {
-
     let stringBody: string;
     // On some environments like GCP (Google Cloud Platform),
     // req.body can be pre-parsed and be passed as req.rawBody here
@@ -285,39 +358,33 @@ export function verifySignatureAndParseRawBody(
 }
 
 function logError(logger: Logger, message: string, error: any): void {
-  const logMessage = ('code' in error)
-    ? `${message} (code: ${error.code}, message: ${error.message})`
-    : `${message} (error: ${error})`;
+  const logMessage =
+    'code' in error ? `${message} (code: ${error.code}, message: ${error.message})` : `${message} (error: ${error})`;
   logger.warn(logMessage);
 }
 
 function verifyRequestSignature(
-    signingSecret: string,
-    body: string,
-    signature: string | undefined,
-    requestTimestamp: string | undefined,
+  signingSecret: string,
+  body: string,
+  signature: string | undefined,
+  requestTimestamp: string | undefined,
 ): void {
   if (signature === undefined || requestTimestamp === undefined) {
-    throw new ReceiverAuthenticityError(
-        'Slack request signing verification failed. Some headers are missing.',
-    );
+    throw new ReceiverAuthenticityError('Slack request signing verification failed. Some headers are missing.');
   }
 
   const ts = Number(requestTimestamp);
+  // eslint-disable-next-line no-restricted-globals
   if (isNaN(ts)) {
-    throw new ReceiverAuthenticityError(
-        'Slack request signing verification failed. Timestamp is invalid.',
-    );
+    throw new ReceiverAuthenticityError('Slack request signing verification failed. Timestamp is invalid.');
   }
 
   // Divide current date to match Slack ts format
   // Subtract 5 minutes from current time
-  const fiveMinutesAgo = Math.floor(Date.now() / 1000) - (60 * 5);
+  const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 60 * 5;
 
   if (ts < fiveMinutesAgo) {
-    throw new ReceiverAuthenticityError(
-        'Slack request signing verification failed. Timestamp is too old.',
-    );
+    throw new ReceiverAuthenticityError('Slack request signing verification failed. Timestamp is too old.');
   }
 
   const hmac = crypto.createHmac('sha256', signingSecret);
@@ -325,9 +392,7 @@ function verifyRequestSignature(
   hmac.update(`${version}:${ts}:${body}`);
 
   if (!tsscmp(hash, hmac.digest('hex'))) {
-    throw new ReceiverAuthenticityError(
-        'Slack request signing verification failed. Signature mismatch.',
-    );
+    throw new ReceiverAuthenticityError('Slack request signing verification failed. Signature mismatch.');
   }
 }
 
@@ -337,9 +402,9 @@ function verifyRequestSignature(
  * - Parse request.body and assign the successfully parsed object to it.
  */
 function verifySignatureAndParseBody(
-    signingSecret: string,
-    body: string,
-    headers: Record<string, any>,
+  signingSecret: string,
+  body: string,
+  headers: Record<string, any>,
 ): AnyMiddlewareArgs['body'] {
   // *** Request verification ***
   const {
@@ -348,20 +413,12 @@ function verifySignatureAndParseBody(
     'content-type': contentType,
   } = headers;
 
-  verifyRequestSignature(
-      signingSecret,
-      body,
-      signature,
-      requestTimestamp,
-  );
+  verifyRequestSignature(signingSecret, body, signature, requestTimestamp);
 
   return parseRequestBody(body, contentType);
 }
 
-function parseRequestBody(
-    stringBody: string,
-    contentType: string | undefined,
-): any {
+function parseRequestBody(stringBody: string, contentType: string | undefined): any {
   if (contentType === 'application/x-www-form-urlencoded') {
     const parsedBody = querystring.parse(stringBody);
 
@@ -374,3 +431,41 @@ function parseRequestBody(
 
   return JSON.parse(stringBody);
 }
+
+// Option keys for tls.createServer() and tls.createSecureContext(), exclusive of those for http.createServer()
+const httpsOptionKeys = [
+  'ALPNProtocols',
+  'clientCertEngine',
+  'enableTrace',
+  'handshakeTimeout',
+  'rejectUnauthorized',
+  'requestCert',
+  'sessionTimeout',
+  'SNICallback',
+  'ticketKeys',
+  'pskCallback',
+  'pskIdentityHint',
+
+  'ca',
+  'cert',
+  'sigalgs',
+  'ciphers',
+  'clientCertEngine',
+  'crl',
+  'dhparam',
+  'ecdhCurve',
+  'honorCipherOrder',
+  'key',
+  'privateKeyEngine',
+  'privateKeyIdentifier',
+  'maxVersion',
+  'minVersion',
+  'passphrase',
+  'pfx',
+  'secureOptions',
+  'secureProtocol',
+  'sessionIdContext',
+];
+
+const missingServerErrorDescription =
+  'The receiver cannot be started because private state was mutated. Please report this to the maintainers.';

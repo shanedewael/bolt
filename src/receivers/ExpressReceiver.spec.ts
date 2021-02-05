@@ -1,10 +1,15 @@
-// tslint:disable:no-implicit-dependencies
+/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/naming-convention */
+
 import 'mocha';
-import { Logger, LogLevel } from '@slack/logger';
+import sinon, { SinonFakeTimers, SinonSpy } from 'sinon';
 import { assert } from 'chai';
+import { Override, mergeOverrides } from '../test-helpers';
+import rewiremock from 'rewiremock';
+import { Logger, LogLevel } from '@slack/logger';
 import { Request, Response } from 'express';
-import sinon, { SinonFakeTimers } from 'sinon';
 import { Readable } from 'stream';
+import { EventEmitter } from 'events';
+import { ErrorCode, CodedError, ReceiverInconsistentStateError } from '../errors';
 
 import ExpressReceiver, {
   respondToSslCheck,
@@ -12,29 +17,51 @@ import ExpressReceiver, {
   verifySignatureAndParseRawBody,
 } from './ExpressReceiver';
 
-describe('ExpressReceiver', () => {
+describe('ExpressReceiver', function () {
+  beforeEach(function () {
+    this.fakeServer = new FakeServer();
+    this.fakeCreateServer = sinon.fake.returns(this.fakeServer);
+  });
+
   const noopLogger: Logger = {
-    debug(..._msg: any[]): void { /* noop */ },
-    info(..._msg: any[]): void { /* noop */ },
-    warn(..._msg: any[]): void { /* noop */ },
-    error(..._msg: any[]): void { /* noop */ },
-    setLevel(_level: LogLevel): void { /* noop */ },
-    getLevel(): LogLevel { return LogLevel.DEBUG; },
-    setName(_name: string): void { /* noop */ },
+    debug(..._msg: any[]): void {
+      /* noop */
+    },
+    info(..._msg: any[]): void {
+      /* noop */
+    },
+    warn(..._msg: any[]): void {
+      /* noop */
+    },
+    error(..._msg: any[]): void {
+      /* noop */
+    },
+    setLevel(_level: LogLevel): void {
+      /* noop */
+    },
+    getLevel(): LogLevel {
+      return LogLevel.DEBUG;
+    },
+    setName(_name: string): void {
+      /* noop */
+    },
   };
 
   function buildResponseToVerify(result: any): Response {
-    return {
+    return ({
       status: (code: number) => {
         result.code = code;
-        return {
-          send: () => { result.sent = true; },
-        } as any as Response;
+        return ({
+          send: () => {
+            result.sent = true;
+          },
+        } as any) as Response;
       },
-    } as any as Response;
+    } as any) as Response;
   }
 
   describe('constructor', () => {
+    // NOTE: it would be more informative to test known valid combinations of options, as well as invalid combinations
     it('should accept supported arguments', async () => {
       const receiver = new ExpressReceiver({
         signingSecret: 'my-secret',
@@ -54,15 +81,154 @@ describe('ExpressReceiver', () => {
     });
   });
 
-  describe('start/stop', () => {
-    it('should be available', async () => {
-      const receiver = new ExpressReceiver({
-        signingSecret: 'my-secret',
-        logger: noopLogger,
-      });
+  describe('#start()', function () {
+    it('should start listening for requests using the built-in HTTP server', async function () {
+      // Arrange
+      const overrides = mergeOverrides(
+        withHttpCreateServer(this.fakeCreateServer),
+        withHttpsCreateServer(sinon.fake.throws('Should not be used.')),
+      );
+      const ExpressReceiver = await importExpressReceiver(overrides);
+      const receiver = new ExpressReceiver({ signingSecret: '' });
+      const port = 12345;
 
-      await receiver.start(9999);
+      // Act
+      const server = await receiver.start(port);
+
+      // Assert
+      assert(this.fakeCreateServer.calledOnce);
+      assert.strictEqual(server, this.fakeServer);
+      assert(this.fakeServer.listen.calledWith(port));
+    });
+    it('should start listening for requests using the built-in HTTPS (TLS) server when given TLS server options', async function () {
+      // Arrange
+      const overrides = mergeOverrides(
+        withHttpCreateServer(sinon.fake.throws('Should not be used.')),
+        withHttpsCreateServer(this.fakeCreateServer),
+      );
+      const ExpressReceiver = await importExpressReceiver(overrides);
+      const receiver = new ExpressReceiver({ signingSecret: '' });
+      const port = 12345;
+      const tlsOptions = { key: '', cert: '' };
+
+      // Act
+      const server = await receiver.start(port, tlsOptions);
+
+      // Assert
+      assert(this.fakeCreateServer.calledOnceWith(tlsOptions));
+      assert.strictEqual(server, this.fakeServer);
+      assert(this.fakeServer.listen.calledWith(port));
+    });
+
+    it('should reject with an error when the built-in HTTP server fails to listen (such as EADDRINUSE)', async function () {
+      // Arrange
+      const fakeCreateFailingServer = sinon.fake.returns(new FakeServer(new Error('fake listening error')));
+      const overrides = mergeOverrides(
+        withHttpCreateServer(fakeCreateFailingServer),
+        withHttpsCreateServer(sinon.fake.throws('Should not be used.')),
+      );
+      const ExpressReceiver = await importExpressReceiver(overrides);
+      const receiver = new ExpressReceiver({ signingSecret: '' });
+      const port = 12345;
+
+      // Act
+      let caughtError: Error | undefined;
+      try {
+        await receiver.start(port);
+      } catch (error) {
+        caughtError = error;
+      }
+
+      // Assert
+      assert.instanceOf(caughtError, Error);
+    });
+    it('should reject with an error when starting and the server was already previously started', async function () {
+      // Arrange
+      const overrides = mergeOverrides(
+        withHttpCreateServer(this.fakeCreateServer),
+        withHttpsCreateServer(sinon.fake.throws('Should not be used.')),
+      );
+      const ExpressReceiver = await importExpressReceiver(overrides);
+      const receiver = new ExpressReceiver({ signingSecret: '' });
+      const port = 12345;
+
+      // Act
+      let caughtError: Error | undefined;
+      await receiver.start(port);
+      try {
+        await receiver.start(port);
+      } catch (error) {
+        caughtError = error;
+      }
+
+      // Assert
+      assert.instanceOf(caughtError, ReceiverInconsistentStateError);
+      assert.equal((caughtError as CodedError).code, ErrorCode.ReceiverInconsistentStateError);
+    });
+  });
+
+  describe('#stop', function () {
+    it('should stop listening for requests when a built-in HTTP server is already started', async function () {
+      // Arrange
+      const overrides = mergeOverrides(
+        withHttpCreateServer(this.fakeCreateServer),
+        withHttpsCreateServer(sinon.fake.throws('Should not be used.')),
+      );
+      const ExpressReceiver = await importExpressReceiver(overrides);
+      const receiver = new ExpressReceiver({ signingSecret: '' });
+      const port = 12345;
+      await receiver.start(port);
+
+      // Act
       await receiver.stop();
+
+      // Assert
+      // As long as control reaches this point, the test passes
+      assert.isOk(true);
+    });
+    it('should reject when a built-in HTTP server is not started', async function () {
+      // Arrange
+      const overrides = mergeOverrides(
+        withHttpCreateServer(this.fakeCreateServer),
+        withHttpsCreateServer(sinon.fake.throws('Should not be used.')),
+      );
+      const ExpressReceiver = await importExpressReceiver(overrides);
+      const receiver = new ExpressReceiver({ signingSecret: '' });
+
+      // Act
+      let caughtError: Error | undefined;
+      try {
+        await receiver.stop();
+      } catch (error) {
+        caughtError = error;
+      }
+
+      // Assert
+      // As long as control reaches this point, the test passes
+      assert.instanceOf(caughtError, ReceiverInconsistentStateError);
+      assert.equal((caughtError as CodedError).code, ErrorCode.ReceiverInconsistentStateError);
+    });
+  });
+
+  describe('state management for built-in server', function () {
+    it('should be able to start after it was stopped', async function () {
+      // Arrange
+      const overrides = mergeOverrides(
+        withHttpCreateServer(this.fakeCreateServer),
+        withHttpsCreateServer(sinon.fake.throws('Should not be used.')),
+      );
+      const ExpressReceiver = await importExpressReceiver(overrides);
+      const receiver = new ExpressReceiver({ signingSecret: '' });
+      const port = 12345;
+      await receiver.start(port);
+      await receiver.stop();
+
+      // Act
+      await receiver.start(port);
+
+      // Assert
+      // As long as control reaches this point, the test passes
+      assert.isOk(true);
     });
   });
 
@@ -74,9 +240,15 @@ describe('ExpressReceiver', () => {
         const req = { body: { ssl_check: 1 } } as Request;
         let sent = false;
         // tslint:disable-next-line: no-object-literal-type-assertion
-        const resp = { send: () => { sent = true; } } as Response;
+        const resp = {
+          send: () => {
+            sent = true;
+          },
+        } as Response;
         let errorResult: any;
-        const next = (error: any) => { errorResult = error; };
+        const next = (error: any) => {
+          errorResult = error;
+        };
 
         // Act
         respondToSslCheck(req, resp, next);
@@ -92,9 +264,15 @@ describe('ExpressReceiver', () => {
         const req = { body: { type: 'block_actions' } } as Request;
         let sent = false;
         // tslint:disable-next-line: no-object-literal-type-assertion
-        const resp = { send: () => { sent = true; } } as Response;
+        const resp = {
+          send: () => {
+            sent = true;
+          },
+        } as Response;
         let errorResult: any;
-        const next = (error: any) => { errorResult = error; };
+        const next = (error: any) => {
+          errorResult = error;
+        };
 
         // Act
         respondToSslCheck(req, resp, next);
@@ -112,9 +290,15 @@ describe('ExpressReceiver', () => {
         const req = { body: { type: 'url_verification', challenge: 'this is it' } } as Request;
         let sentBody = undefined;
         // tslint:disable-next-line: no-object-literal-type-assertion
-        const resp = { json: (body) => { sentBody = body; } } as Response;
+        const resp = {
+          json: (body) => {
+            sentBody = body;
+          },
+        } as Response;
         let errorResult: any;
-        const next = (error: any) => { errorResult = error; };
+        const next = (error: any) => {
+          errorResult = error;
+        };
 
         // Act
         respondToUrlVerification(req, resp, next);
@@ -130,9 +314,15 @@ describe('ExpressReceiver', () => {
         const req = { body: { ssl_check: 1 } } as Request;
         let sentBody = undefined;
         // tslint:disable-next-line: no-object-literal-type-assertion
-        const resp = { json: (body) => { sentBody = body; } } as Response;
+        const resp = {
+          json: (body) => {
+            sentBody = body;
+          },
+        } as Response;
         let errorResult: any;
-        const next = (error: any) => { errorResult = error; };
+        const next = (error: any) => {
+          errorResult = error;
+        };
 
         // Act
         respondToUrlVerification(req, resp, next);
@@ -145,7 +335,6 @@ describe('ExpressReceiver', () => {
   });
 
   describe('verifySignatureAndParseRawBody', () => {
-
     let clock: SinonFakeTimers;
 
     beforeEach(() => {
@@ -162,7 +351,8 @@ describe('ExpressReceiver', () => {
     const signingSecret = '8f742231b10e8888abcd99yyyzzz85a5';
     const signature = 'v0=a2114d57b48eac39b9ad189dd8316235a7b4a8d21a10bd27519666489c69b503';
     const requestTimestamp = 1531420618;
-    const body = 'token=xyzz0WbapA4vBCDEFasx0q6G&team_id=T1DC2JH3J&team_domain=testteamnow&channel_id=G8PSS9T3V&channel_name=foobar&user_id=U2CERLKJA&user_name=roadrunner&command=%2Fwebhook-collect&text=&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2FT1DC2JH3J%2F397700885554%2F96rGlfmibIGlgcZRskXaIFfN&trigger_id=398738663015.47445629121.803a0bc887a14d10d2c447fce8b6703c';
+    const body =
+      'token=xyzz0WbapA4vBCDEFasx0q6G&team_id=T1DC2JH3J&team_domain=testteamnow&channel_id=G8PSS9T3V&channel_name=foobar&user_id=U2CERLKJA&user_name=roadrunner&command=%2Fwebhook-collect&text=&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2FT1DC2JH3J%2F397700885554%2F96rGlfmibIGlgcZRskXaIFfN&trigger_id=398738663015.47445629121.803a0bc887a14d10d2c447fce8b6703c';
 
     function buildExpressRequest(): Request {
       const reqAsStream = new Readable();
@@ -196,10 +386,13 @@ describe('ExpressReceiver', () => {
     async function runWithValidRequest(req: Request, state: any): Promise<void> {
       // Arrange
       const resp = buildResponseToVerify(state);
-      const next = (error: any) => { state.error = error; };
+      const next = (error: any) => {
+        state.error = error;
+      };
 
       // Act
       const verifier = verifySignatureAndParseRawBody(noopLogger, signingSecret);
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await verifier(req, resp, next);
     }
 
@@ -252,6 +445,7 @@ describe('ExpressReceiver', () => {
 
       // Act
       const verifier = verifySignatureAndParseRawBody(noopLogger, signingSecret);
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await verifier(req, resp, next);
 
       // Assert
@@ -296,6 +490,7 @@ describe('ExpressReceiver', () => {
 
       // Act
       const verifier = verifySignatureAndParseRawBody(noopLogger, signingSecret);
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await verifier(req, resp, next);
 
       // Assert
@@ -351,6 +546,7 @@ describe('ExpressReceiver', () => {
       // Act
 
       const verifier = verifySignatureAndParseRawBody(noopLogger, signingSecret);
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await verifier(req, resp, next);
 
       // Assert
@@ -384,6 +580,7 @@ describe('ExpressReceiver', () => {
 
       // Act
       const verifier = verifySignatureAndParseRawBody(noopLogger, signingSecret);
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await verifier(req, resp, next);
 
       // Assert
@@ -411,6 +608,7 @@ describe('ExpressReceiver', () => {
       // Act
       const verifier = verifySignatureAndParseRawBody(noopLogger, signingSecret);
       verifier(req, resp, next);
+      // eslint-disable-next-line @typescript-eslint/await-thenable
       await verifier(req, resp, next);
 
       // Assert
@@ -445,3 +643,53 @@ describe('ExpressReceiver', () => {
     });
   });
 });
+
+/* Testing Harness */
+
+// Loading the system under test using overrides
+async function importExpressReceiver(overrides: Override = {}): Promise<typeof import('./ExpressReceiver').default> {
+  return (await rewiremock.module(() => import('./ExpressReceiver'), overrides)).default;
+}
+
+// Composable overrides
+function withHttpCreateServer(spy: SinonSpy): Override {
+  return {
+    http: {
+      createServer: spy,
+    },
+  };
+}
+
+function withHttpsCreateServer(spy: SinonSpy): Override {
+  return {
+    https: {
+      createServer: spy,
+    },
+  };
+}
+
+// Fakes
+class FakeServer extends EventEmitter {
+  public on = sinon.fake();
+  public listen = sinon.fake((...args: any[]) => {
+    if (this.listeningFailure !== undefined) {
+      this.emit('error', this.listeningFailure);
+      return;
+    }
+    setImmediate(() => {
+      args[1]();
+    });
+  });
+  public close = sinon.fake((...args: any[]) => {
+    setImmediate(() => {
+      this.emit('close');
+      setImmediate(() => {
+        args[0]();
+      });
+    });
+  });
+
+  constructor(private listeningFailure?: Error) {
+    super();
+  }
+}
