@@ -11,6 +11,6 @@ jobs:
       id: hello
       uses: shaydewael/template-conversion@v0.1
       with:
-        template: 'jekyll-template.yml' # fake for now
+        template: './jekyll-template.yml' # fake for now
         source: '/docs/_basic'
         output: '/docs/_basic_revised'
