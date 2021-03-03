@@ -9,7 +9,7 @@ jobs:
     steps:
     - name: Hello world action step
       id: hello
-      uses: shaydewael/template-conversion
+      uses: shaydewael/template-conversion@v0.1
       with:
         template: 'jekyll-template.yml' # fake for now
         source: '/docs/_basic'
