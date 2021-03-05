@@ -9,8 +9,9 @@ jobs:
     steps:
     - name: Hello world action step
       id: hello
-      uses: shaydewael/template-conversion@v0.1
+      uses: shaydewael/docs-conversion@v0.1
       with:
-        template: './jekyll-template.yml' # fake for now
-        source: '/docs/_basic'
-        output: '/docs/_basic_revised'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        schema: 'test'
+        input: 'docs'
+        output: 'compiled'
