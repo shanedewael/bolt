@@ -9,9 +9,9 @@ jobs:
     steps:
     - name: Hello world action step
       id: hello
-      uses: shaydewael/docs-conversion@v0.2
+      uses: shaydewael/docs-conversion@v0.1
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
         schema: 'test'
         input: 'docs'
         output: 'compiled'
