@@ -1,6 +1,6 @@
 on:
-  push:
-    branches: [ 'main' ]
+  workflow_dispatch
+  
 
 jobs:
   convert_docs:
@@ -9,7 +9,7 @@ jobs:
     steps:
     - name: Hello world action step
       id: hello
-      uses: shaydewael/docs-conversion@v0.1
+      uses: shaydewael/docs-conversion@v0.2
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         schema: 'test'
