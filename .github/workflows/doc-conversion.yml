@@ -13,5 +13,5 @@ jobs:
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
         schema: 'jekyll-template.yml'
-        input: 'docs'
+        input: 'docs/_basic'
         output: 'compiled'
