@@ -12,6 +12,6 @@ jobs:
       uses: shaydewael/docs-conversion@v0.1
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-        schema: 'test'
+        schema: 'jekyll-template.yml'
         input: 'docs'
         output: 'compiled'
